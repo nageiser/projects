@@ -14,9 +14,24 @@ plugboard <- function(){
   return(pairs)
 }
 
+passcode_setting <- sample(0:9, 5, replace = FALSE)
+
 setting <- plugboard()
 
-l_enigma <- function(text) {
+l_enigma <- function(text, passcode) {
+  length <- length(passcode)
+  if (length != 5) {
+    print("Passcode is not of length 5")
+    end()
+  }
+  if (!is(passcode, "integer")) {
+    print("Passcode is not an integer")
+    end()
+  }
+  if (!all(passcode == passcode_setting)) {
+    print("Your passcode is incorrect")
+    end()
+  }
   require(stringr)
   text <- strsplit(text, split = "")[[1]]
   text <- str_to_lower(text)
@@ -35,3 +50,5 @@ l_enigma <- function(text) {
   out <- str_to_title(out, locale = "en")
   return(out)
 }
+
+
