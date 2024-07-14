@@ -2,6 +2,7 @@
 ## function plugboard() and an encryption function l_enigma()
 
 plugboard <- function(){
+  passcode_setting <- sample(0:9, 5, replace = FALSE)
   k <- 13
   pairs <- matrix(nrow = 2, ncol = 13)
   for(i in 1:k) {
@@ -13,8 +14,6 @@ plugboard <- function(){
   pairs <- cbind(pairs, spaces)
   return(pairs)
 }
-
-passcode_setting <- sample(0:9, 5, replace = FALSE)
 
 setting <- plugboard()
 
