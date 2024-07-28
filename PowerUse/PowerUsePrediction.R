@@ -1,4 +1,4 @@
-# Load necessary libraries
+# Necessary libraries
 library(dplyr)
 library(lubridate)
 library(tidyr)
@@ -6,17 +6,16 @@ library(ranger)
 library(xgboost)
 library(ggplot2)
 
-# Load and inspect the training and testing datasets
+# Load and inspect the training and testing data sets
 df_train <- read.csv("df_train.csv")
 df_test <- read.csv("df_test.csv")
 
-## Explore the structure of the dataset
 glimpse(df_train)
 glimpse(df_test)
 
 fmla <- as.formula("power_consumption ~ semester + quarter + day_in_week + week_in_year + day_in_year + month")
 
-# Function to format test and train datasets and one-hot encode categorical variables for the
+# Function to format test and train data sets and one-hot encode categorical variables for the
 # gradient-boosted tree
 
 format <- function(df) {
