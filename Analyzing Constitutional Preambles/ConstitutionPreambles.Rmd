@@ -1,0 +1,306 @@
+---
+title: "ConstitutionalPreambles"
+output: html_document
+date: "2024-02-14"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, warning = FALSE, root.dir = "/Users/nicholasgeiser/Documents/qss-student/DISCOVERY/constitutions/data"
+)
+
+```
+
+## Question 1
+
+First, let's visualize the data to better understand how constitutional documents differ. Start by importing the preamble data, tokenizing, and preprocessing the text. Calculate both the regular document term frequency and the tf-idf weighted term frequency. In both cases, visualize the preamble to the U.S. Constitution with a word cloud. How do the results differ between the two methods? 
+
+```{r corpus prep, message=FALSE, warning=FALSE}
+
+library(tidyverse)
+library(tm)
+library(SnowballC)
+library(wordcloud)
+
+constitutions <- read_csv("constitutions.csv")
+
+corpus.raw <- Corpus(VectorSource(constitutions$preamble)) # load the raw corpus
+
+corpus.prep <- tm_map(corpus.raw, content_transformer(tolower)) # make lower case
+corpus.prep <- tm_map(corpus.prep, stripWhitespace) # remove whitespace
+corpus.prep <- tm_map(corpus.prep, removePunctuation) # remove punctuation
+corpus.prep <- tm_map(corpus.prep, removeNumbers) # remove numbers
+corpus <- tm_map(corpus.prep, removeWords, stopwords("English")) # remove stop words
+corpus <- tm_map(corpus, stemDocument) # stem remaining words 
+
+dtm <- DocumentTermMatrix(corpus) # Document-term matrix
+dtm
+
+dtm.tfidf <- weightTfIdf(dtm) # Calculate TF-IDF
+dtm.tfidf
+```
+```{r plots, warning=FALSE, fig.dim=c(5,7)}
+
+## Create word clouds for U.S. Constitution's preamble using dtm and dtm.tfidf matrices. 
+
+dtm.mat <- as.matrix(dtm) # Coerce to matrix
+dtm.tfidf.mat <- as.matrix(dtm.tfidf) # Coerce to matrix
+
+## Add names to matrix
+
+rownames(dtm.mat) <- constitutions$country
+rownames(dtm.tfidf.mat) <- constitutions$country
+
+# word cloud for USA preamble, using tf-idf weighting (common terms across documents downweighted)
+wordcloud(words = colnames(dtm.tfidf.mat), 
+          freq = dtm.tfidf.mat["united_states_of_america",], 
+          scale = c(3, 0.2),
+          max.words = 20) 
+
+# same, now weighted only by term frequency
+wordcloud(words = colnames(dtm.mat), 
+          freq = dtm.mat[149,],  
+          scale = c(3, 0.2),
+          max.words = 20) 
+
+
+```
+
+## Question 2
+
+We next apply the k-means algorithm to the tf-idf and identify clusters of similar constitution preambles. Set the number of clusters to 4 and describe the results. To make each row comparable, divide it by a constant such that each row represents a vector of unit length. Note that the length of a vector $a=[a_1,a_2,\dots,a_n]$ is given by $||a||=\sqrt{a_1^2+a_2^2+\dots+a_n^2}$
+
+```{r question 2}
+
+## Function to normalize each row
+
+normalize_row <- function(row) {
+  scaled_row <- scale(row, center = FALSE)
+  normalized_row <- scaled_row / sqrt(sum(scaled_row^2))
+  return(normalized_row)
+}
+
+## Apply function to each row using apply()
+
+normalized.dtm.tfidf.mat <- apply(dtm.tfidf.mat, 1, normalize_row)
+
+## Apply the k-means algorithm with 4 clusters 
+
+kmeans.4.out <- kmeans(normalized.dtm.tfidf.mat, centers = 4, iter.max = 10, nstart = 5)
+
+## Loop to print words and countries in each cluster
+
+k <- 4 # number of clusters
+ 
+for (i in 1:k) {
+  cat("Cluster", i, "\n")
+  cat("Top 10 countries:\n") # most important countries in each cluster
+  print(head(sort(kmeans.4.out$centers[i, ], decreasing = TRUE), n = 10))
+  cat("\n")
+  cat("Top 10 words:\n") # most important words in each cluster
+  print(head(sort(colnames(dtm.tfidf.mat)[kmeans.4.out$cluster == i]), n = 10))
+  cat("\n")
+}
+
+```
+
+## Question 3
+
+Apply the cosine similarity function to identify the five constitutions whose preambles most resemble that of the US constitution.
+
+```{r}
+
+## Define vector for US (x) and remove US from dtm.tfidf.mat (y)
+
+row_index <- which(rownames(dtm.tfidf.mat) == "united_states_of_america")
+
+if (length(row_index) == 0) {
+  stop("united_states_of_america not found in row names")
+}
+
+## Define function for cosine similarity
+
+cosine_sim <- function(a, b) {
+  # Ensure a and b are matrices with at least two dimensions
+  if (is.vector(a)) a <- matrix(a, nrow = 1)
+  if (is.vector(b)) b <- matrix(b, nrow = 1)
+  
+  numer <- rowSums(a * b)
+  denom <- sqrt(rowSums(a^2)) * sqrt(rowSums(b^2))
+  
+  return(numer / denom)
+}
+
+
+## Function to compute similarity
+
+compute_similarity <- function(matrix, index) {
+  row_vector <- matrix[index, ]
+  matrix_removed <- matrix[-index, ]
+  country_names <- colnames(matrix_removed)
+  broadcasted_vector <- matrix(rep(row_vector, each = nrow(matrix_removed)), 
+                               nrow = nrow(matrix_removed), 
+                               byrow = TRUE)
+  similarities <- cosine_sim(broadcasted_vector, matrix_removed)
+  named_similarities <- setNames(similarities, country_names)
+  return(named_similarities)
+}
+
+## Compute similarity
+similarities <- compute_similarity(normalized.dtm.tfidf.mat, row_index)
+
+# Display top 5 similar countries 
+top_5 <- head(sort(similarities, decreasing = TRUE), n = 5)
+top_5_names <- names(top_5)
+top_5_names <- str_to_title(top_5_names)
+print(top_5)
+paste("The five countries with preambles most similar to the preamble of the US Constitution are:",
+                paste(top_5_names, collapse = ", "))
+
+```
+
+## Question 4
+
+We examine the influence of US constitutions on other constitutions over time. We focus on the post-war period. Sort the constitutions chronologically and calculate, for every ten years from 1960 until 2010, the average of cosine similarity between the US constitution and the constitutions that were created during the past decade. Plot the result. Each of these averages computed over time is called the *moving average*. Does similarity tend to increase, decrease, or remain the same over time? Comment on the pattern you observe.
+
+```{r moving average, warning = FALSE}
+
+## Define convert-to-tfidf function 
+
+convert_2_tfidf <- function(df) {
+  corpus.raw <- Corpus(VectorSource(df$preamble)) # load the raw corpus
+  corpus.prep <- tm_map(corpus.raw, content_transformer(tolower)) # make lower case
+  corpus.prep <- tm_map(corpus.prep, stripWhitespace) # remove whitespace
+  corpus.prep <- tm_map(corpus.prep, removePunctuation) # remove punctuation
+  corpus.prep <- tm_map(corpus.prep, removeNumbers) # remove numbers
+  corpus <- tm_map(corpus.prep, removeWords, stopwords("English")) # remove stop words
+  corpus <- tm_map(corpus, stemDocument) # stem remaining words 
+  dtm <- DocumentTermMatrix(corpus) # Document-term matrix
+  dtm.tfidf <- weightTfIdf(dtm) # Calculate TF-IDF
+  dtm.tfidf.mat <- as.matrix(dtm.tfidf) # coerce to matrix
+  return(dtm.tfidf.mat)
+}
+
+## Define moving average function
+
+tenyr_moving_avg_cosine_sim <- function(df, name, start_year, end_year, window_size) {
+  dtm.tfidf.mat <- convert_2_tfidf(df) # Convert to tfidf
+  rownames(dtm.tfidf.mat) <- df$country # Add names to matrix
+  ordered <- dtm.tfidf.mat[order(df$year),] # Order by year
+  row_index <- ordered[name, , drop = FALSE] # Keep as matrix
+
+  ma <- rep(NA, end_year - start_year + 1) # initialize moving average
+
+  for (i in start_year:end_year) {
+    start <- i - window_size + 1
+    end <- i
+    window <- ordered[df$year >= start & df$year <= end, , drop = FALSE]
+    
+    # Ensure row_index is compared to each row in the window
+    cosine_sims <- apply(window, 1, function(row) cosine_sim(row_index, row))
+    
+    ma[i - start_year + 1] <- mean(cosine_sims)
+  }
+  
+  return(ma)
+}
+
+ma <- tenyr_moving_avg_cosine_sim(constitutions, "united_states_of_america", 1960, 2010, 10)
+ma <- tibble(year = 1960:2010, moving_avg = ma)
+
+plot_ma_1960_2010 <- ggplot(ma, aes(year, moving_avg)) +
+  geom_line() +
+  labs(x = "Year", 
+       y = "Ten year moving average", 
+       title = "Similarity between new constitutions and US Constitution, 1960 - 2010 \n(ten-year moving average)")
+plot_ma_1960_2010
+
+```
+
+We see that the trend is roughly flat until around 1995, while the similarity increases to around 0.08 around the year 2005.
+
+
+## Question 5
+
+We next construct directed, weighted network data based on the cosine similarity of constitutions. Specifically, create an adjacency matrix whose (i,j)-th entry represents the cosine similarity between the i-th and j-th constitution preambles, where the i-th constitution was created in the same year or after the j-th constitution. This entry equals zero if the i-th constitution was created before the j-th constitution. Hint: first create an edge list with a column for the relevant similarity between two constitutions. You may need to create new variables for the constitution years. After creating the graph object, you can assign weights to the edges where the weight is the cosine similarity. Apply the PageRank algorithm to this weighted adjacency matrix. Briefly comment on the result.
+
+```{r, message = FALSE, warning = FALSE}
+
+## Create adjacency matrix
+
+library("igraph")
+n <- nrow(constitutions)
+similarity.cons.adj <- matrix(0, nrow = n, ncol = n)
+colnames(similarity.cons.adj) <- rownames(similarity.cons.adj) <- constitutions$country
+
+## Define cosine_sim_v for two vectors 
+
+cosine_sim_v <- function(a,b){
+  require(pracma)
+  numer <- dot(a,b)
+  denom <- Norm(a) * Norm(b)
+  return(numer / denom)
+}
+
+## Create adjacency matrix for constitutional similarities w/ nested for loops
+
+for (i in 1:n){
+  for (j in 1:n) {
+    if (constitutions$year[i] >= constitutions$year[j]) {
+    similarity <- cosine_sim_v(dtm.tfidf.mat[i,], dtm.tfidf.mat[j,])
+    similarity.cons.adj[i, j] <- similarity
+    } else {
+    similarity.cons.adj[i, j] <- 0
+    }
+  }
+}
+
+similarity.cons.adj.graph <- graph_from_adjacency_matrix(similarity.cons.adj, mode = "directed", weighted = TRUE, diag = FALSE)
+
+constitutions$indegree <- degree(similarity.cons.adj.graph, mode = "in")
+constitutions$outdegree <- degree(similarity.cons.adj.graph, mode = "out")
+
+pr_constitutions <- page_rank(similarity.cons.adj.graph, directed = TRUE)
+constitutions$pr <- pr_constitutions$vector
+
+# Most influential constitutions according to PageRank algorithm
+
+most_influential <- constitutions %>%
+  select(country, pr) %>%
+  arrange(desc(pr)) %>%
+  slice_head(n = 10)
+most_influential
+
+# Least influential constitutions according to PageRank algorithm
+
+least_influential <- constitutions %>%
+  select(country, pr) %>%
+  arrange(desc(pr)) %>%
+  slice_tail(n = 10)
+least_influential
+
+```
+We see that the ten most influential Constitutions have been those of the United States, Argentina, Latvia, Tonga, Ireland, Japan, Indonesia, India, Taiwan, and the Republic of Korea. The ten least influential constitutions have been Morocco, South Sudan, Bhutan, Syria, Zimbabwe, Tunisia, the Central African Republic, Fiji, and Thailand. 
+
+```{r plot page rank, fig.height=10, fig.width=8}
+
+col <- adjustcolor("grey", alpha.f = 0.2)
+top_10_indices <- order(constitutions$pr, decreasing = TRUE)[1:10]
+vertex_labels <- rep(NA, length(constitutions$pr))
+vertex_labels[top_10_indices] <- constitutions$country[top_10_indices]
+
+plot(similarity.cons.adj.graph, 
+     layout = layout_with_fr,
+     vertex.size = constitutions$pr * 200,
+     vertex.label = vertex_labels,
+     vertex.label.cex = 0.8,
+     vertex.label.dist = 0.5,
+     edge.arrow.size = 0.01,
+     edge.color = col,
+     edge.width = 0.5,
+     edge.curved = 0.3,
+     margin = 0.2,
+     main = "Graph of Constitutional Influence")
+
+```
+
