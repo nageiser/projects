@@ -1,7 +1,7 @@
 ---
 title: "ConstitutionalPreambles"
 output: html_document
-date: "2024-02-14"
+date: "2024-09-16"
 ---
 
 ```{r setup, include=FALSE}
@@ -39,9 +39,11 @@ dtm
 dtm.tfidf <- weightTfIdf(dtm) # Calculate TF-IDF
 dtm.tfidf
 ```
+
+
 ```{r plots, warning=FALSE, fig.dim=c(5,7)}
 
-## Create word clouds for U.S. Constitution's preamble using dtm and dtm.tfidf matrices. 
+## Create word clouds for U.S. Constitution's preamble using the dtm and dtm.tfidf matrices. 
 
 dtm.mat <- as.matrix(dtm) # Coerce to matrix
 dtm.tfidf.mat <- as.matrix(dtm.tfidf) # Coerce to matrix
@@ -65,6 +67,8 @@ wordcloud(words = colnames(dtm.mat),
 
 
 ```
+
+
 
 ## Question 2
 
