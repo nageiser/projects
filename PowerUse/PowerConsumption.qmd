@@ -45,6 +45,8 @@ format <- function(df) {
 Format and extract features from the test and train data:
 
 ```{r}
+fmla <- as.formula("power_consumption ~ semester + quarter + day_in_week + week_in_year + day_in_year + month - 1")
+
 df_test <- format(df_test)
 df_train <- format(df_train)
 
@@ -64,7 +66,6 @@ outcome_test <- df_test["power_consumption"]
 Train baseline linear model:
 
 ```{r}
-fmla <- as.formula("power_consumption ~ semester + quarter + day_in_week + week_in_year + day_in_year + month")
 model.lm <- lm(fmla, data = df_train)
 summary(model.lm)
 ```

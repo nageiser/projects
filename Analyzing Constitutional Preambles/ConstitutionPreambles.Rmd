@@ -1,6 +1,8 @@
 ---
 title: "ConstitutionalPreambles"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 date: "2024-09-16"
 ---
 
@@ -226,7 +228,7 @@ We see that the trend is roughly flat until around 1995, while the similarity in
 
 ## Question 5
 
-We next construct directed, weighted network data based on the cosine similarity of constitutions. Specifically, create an adjacency matrix whose (i,j)-th entry represents the cosine similarity between the i-th and j-th constitution preambles, where the i-th constitution was created in the same year or after the j-th constitution. This entry equals zero if the i-th constitution was created before the j-th constitution. Hint: first create an edge list with a column for the relevant similarity between two constitutions. You may need to create new variables for the constitution years. After creating the graph object, you can assign weights to the edges where the weight is the cosine similarity. Apply the PageRank algorithm to this weighted adjacency matrix. Briefly comment on the result.
+We next construct directed, weighted network data based on the cosine similarity of constitutions. Specifically, create an adjacency matrix whose (i,j)-th entry represents the cosine similarity between the i-th and j-th constitution preambles, where the i-th constitution was created in the same year or after the j-th constitution. This entry equals zero if the i-th constitution was created before the j-th constitution. After creating the graph object, you can assign weights to the edges where the weight is the cosine similarity. Apply the PageRank algorithm to this weighted adjacency matrix. 
 
 ```{r, message = FALSE, warning = FALSE}
 
@@ -284,7 +286,8 @@ least_influential <- constitutions %>%
 least_influential
 
 ```
-We see that the ten most influential Constitutions have been those of the United States, Argentina, Latvia, Tonga, Ireland, Japan, Indonesia, India, Taiwan, and the Republic of Korea. The ten least influential constitutions have been Morocco, South Sudan, Bhutan, Syria, Zimbabwe, Tunisia, the Central African Republic, Fiji, and Thailand. 
+
+We see that the ten most influential Constitutions have been those of the United States, Argentina, Latvia, Tonga, Ireland, Japan, Indonesia, India, Taiwan, and the Republic of Korea. The ten least influential constitutions have been Morocco, South Sudan, Bhutan, Syria, Zimbabwe, Tunisia, the Central African Republic, Fiji, and Thailand.
 
 ```{r plot page rank, fig.height=10, fig.width=8}
 
