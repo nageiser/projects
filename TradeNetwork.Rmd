@@ -1,0 +1,484 @@
+---
+title: "International_Trade_Network"
+author: "Nicholas Geiser"
+date: "2024-09-14"
+output: html_document
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, warning = FALSE, root.dir = "/Users/nicholasgeiser/Documents/qss-student/DISCOVERY/trade-networks"
+)
+```
+
+## Analyzing International Trade
+
+## Question 1
+
+We begin by analyzing international trade as an unweighted, directed
+network. For every year in the data set, create an adjacency matrix
+whose entry $(i,j)$ equals 1 if country $i$ exports to country $j$. If
+this export is zero, then the entry equals 0. We assume that missing
+data, indicated by `NA`, represents zero trade. Plot the 'network
+density', which is defined over time as follows, $$
+    \text{network density}  =  \frac{\text{number of edges}}{\text{number of potential edges}}
+  $$ The `graph.density` function can compute this measure given an
+adjacency matrix. Interpret the result.
+
+```{r libraries, load data, echo = FALSE}
+
+library(tidyverse)
+library(igraph)
+
+trade <- read_csv("data/trade.csv")
+
+```
+
+We first create an adjacency matrix for each year:
+
+```{r alt adjacency matrix}
+
+adj_matrices <- list()
+
+# Loop over years
+years_all <- unique(trade$year)
+for (current_year in years_all) {
+  trade_year <- trade %>% filter(year == current_year)
+  trade_year_exporters <- unique(trade_year$country1)
+  trade_year_importers <- unique(trade_year$country2)
+
+  # Initialize adjacency matrix
+  
+  adj_matrix <- matrix(0, nrow = length(trade_year_exporters), ncol = length(trade_year_importers))
+  rownames(adj_matrix) <- trade_year_exporters
+  colnames(adj_matrix) <- trade_year_importers
+  
+  # Loop over exporters 
+  
+  for (i in 1:length(trade_year_exporters)) {
+    trade_year_exporter <- trade_year %>% 
+      filter(country1 == trade_year_exporters[i])
+    
+    # Loop over importers
+    
+    for (j in 1:length(trade_year_importers)) {
+      exports_value <- trade_year_exporter %>%
+        filter(country2 == trade_year_importers[j]) %>%
+        pull(exports)
+      if (length(exports_value) > 0 && !is.na(exports_value[1]) && exports_value > 0) {
+        adj_matrix[i,j] <- 1
+      }
+      else {
+        adj_matrix[i,j] <- 0
+      }
+    }
+  }
+  adj_matrices[[as.character(current_year)]] <- adj_matrix
+}
+
+```
+
+We see that the adjacency matrices are smaller, especially for earlier
+years, reflecting the fact that fewer countries are in the dataset:
+
+```{r}
+
+print("Matrix Dimensions")
+lapply(adj_matrices, dim)
+
+```
+
+We now plot the network density, which we see has increased over time
+during the 20th century from around 0.2 to 0.5. This indicates that
+countries trade with half of their potential trading partners. We also
+see that the value has remained fairly constant since 1955, and that the
+value decreased to close to zero in 1940 reflecting the breakdown in
+global markets and international trade during the Great Depression.
+
+```{r plot network density, echo = FALSE}
+
+adj_matrix_to_df <- function(adj_matrices, mode, diag) {
+  adj_matrix_graphs <- lapply(adj_matrices, graph_from_adjacency_matrix, mode = mode, diag = diag)
+  density <- lapply(adj_matrix_graphs, edge_density)
+  density_df <- as.tibble(density)
+  density_df <- density_df %>%
+    pivot_longer(cols = everything(),
+    names_to = "Year", 
+    values_to = "Density")
+  return(density_df)
+}
+
+density_df <- adj_matrix_to_df(adj_matrices, mode = "directed", diag = FALSE)
+print(density_df)
+ggplot(density_df, aes(x = Year, y = Density)) +
+  geom_col() +
+  ggtitle("Network Density of Global Trade, 1900 - 2009")
+
+
+```
+
+We now plot the networks for each year:
+
+```{r}
+
+library(ggraph)
+library(tidygraph)
+
+adj_matrix_graphs <- lapply(adj_matrices, graph_from_adjacency_matrix, mode = "directed", diag = FALSE)
+
+create_plot <- function(graph, 
+                        layout = "fr",  # Fruchterman-Reingold layout
+                        node_alpha = 0.7,
+                        edge_alpha = 0.2,
+                        edge_weight_threshold = 0.5,
+                        degree_filter = 0.5, 
+                        label_size = 2,
+                        label_repel = TRUE,
+                        year = NULL) {
+  # Convert to tidygraph if not already
+  if (!inherits(graph, "tbl_graph")) {
+    graph <- as_tbl_graph(graph)
+  }
+  
+  # Remove low-weight edges if weights exist
+  if ("weight" %in% edge_attr_names(graph)) {
+  weights <- edge_attr(graph, "weight")
+    
+  # Remove edges below threshold
+  threshold <- quantile(weights, edge_weight_threshold)
+  graph <- delete_edges(graph, which(weights < threshold))
+  }
+  
+  # Remove low-degree nodes
+  degrees <- degree(graph)
+  degree_threshold <- quantile(degrees, degree_filter)
+  graph <- delete_vertices(graph, which(degrees < degree_threshold))
+  
+  # Plot with ggraph
+  p <- graph %>%
+    ggraph(layout = layout) +
+    # Background for better contrast
+    geom_node_point(
+      aes(size = centrality_degree()),  # Size nodes by degree
+      alpha = node_alpha,
+      color = "dodgerblue",
+      stroke = 0.5
+    ) +
+    {if(label_repel)
+      geom_node_text(
+        aes(label = name),
+        repel = TRUE,
+        size = label_size,
+        alpha = 0.8
+      )
+    else
+      geom_node_text(
+        aes(label = name),
+        size = label_size,
+        alpha = 0.8
+      )
+    } + 
+    # Subtle edges
+    geom_edge_link(
+      alpha = edge_alpha,
+      color = "gray50",
+      width = 0.3
+    ) +
+    theme_graph(base_family = "sans") +
+    theme(
+      plot.background = element_rect(fill = "white", color = NA),
+      panel.background = element_rect(fill = "white", color = NA)
+    ) +
+    labs(title = paste("Trade Network --", year))
+  
+  return(p)
+}
+
+plots <- lapply(seq_along(adj_matrix_graphs), function(i) {
+  create_plot(adj_matrix_graphs[[i]], edge_alpha = 0.2, year = names(adj_matrix_graphs)[i])
+})
+print(plots)
+```
+
+## Question 2
+
+For the years 1900, 1955, and 2009, compute the measures of centrality
+based on degree, betweenness, and closeness (based on total degree) for
+each year. For each year, list the five countries that have the largest
+values of these centrality measures. How do the countries on the lists
+change over time? Briefly comment on the results.
+
+```{r degree, betweeness, and closeness measures}
+
+adj_matrices_subset <- adj_matrices[c("1900", "1955", "2009")]
+
+functions <- list(
+  degree = function(g) degree(g, mode = "out"),
+  betweenness = function(g) betweenness(g, directed = TRUE),
+  percentage_closest = function(g, n) betweenness(g, directed = TRUE) / choose(n - 1, 2),
+  closeness = function(g) closeness(g, mode = "out")
+)
+
+# Function to convert adjacency matrix to graph and apply igraph functions
+apply_igraph_functions <- function(adj_matrix, functions, weights = NULL) {
+  # Convert to weighted graph
+  g <- graph_from_adjacency_matrix(
+    adj_matrix, 
+    mode = "directed", 
+    weighted = weights,
+    diag = FALSE
+    )
+  n <- nrow(adj_matrix)
+  # Apply each function 
+  metrics <- lapply(names(functions), function(func_name) {
+    func <- functions[[func_name]]
+  tryCatch({
+      # Check if the function requires n
+      if (func_name == "percentage_closest") {
+        result <- func(g, n)
+      } else {
+        # Apply function normally
+        result <- func(g)
+      }
+      
+      # Replace infinite or NaN values with 0
+      result[is.na(result) | is.infinite(result)] <- 0
+      
+      # Ensure result has names matching matrix rownames
+      if(is.null(names(result))) {
+        names(result) <- rownames(adj_matrix)
+      }
+      
+      return(result)
+    })
+  })
+  # Convert to dataframe
+  metrics_df <- as.data.frame(metrics)
+  rownames(metrics_df) <- NULL
+  names(metrics_df) <- names(functions)
+  metrics_df$country <- rownames(adj_matrix)
+  # Add country column
+  return(metrics_df)
+}
+
+# Apply the function to each adjacency matrix in the list
+result <- map(adj_matrices_subset, apply_igraph_functions, functions)
+years <- c("1900", "1955", "2009")
+
+```
+
+```{r}
+# Function to get top n countries for each measure
+get_top_n <- function(df, n) {
+  # Use pivot_longer to reshape the data for easier manipulation
+  df_long <- df %>%
+    pivot_longer(cols = -country, names_to = "measure", values_to = "value") %>%
+    # Exclude the measure column from the ranking
+    filter(measure != "country") %>%
+    # Group by measure and get top n
+    group_by(measure) %>%
+    top_n(n, value) %>%
+    arrange(desc(value))
+  
+  return(df_long)
+} 
+
+# Apply the function to each year's dataframe
+top_5_by_year <- lapply(result, get_top_n, n = 5)
+
+# Name the list elements with corresponding years
+years <- c("1900", "1955", "2009")
+names(top_5_by_year) <- years 
+
+# Print the results
+print(top_5_by_year)
+```
+
+## Question 3
+
+We now analyze the international trade network as a weighted, directed
+network in which each edge has a non-negative weight proportional to its
+corresponding trade volume. Create an adjacency matrix for such network
+data. For the years 1900, 1955, and 2009, compute the centrality
+measures from above for the weighted trade network. Instead of degree,
+however, compute the *graph strength*, which in this case equals the sum
+of imports and exports with all adjacent nodes. The `graph.strength`
+function can be used to compute this weighted version of degree. For
+betweenness and closeness, we use the same function as before, i.e.,
+`closeness` and `betweenness`, which can handle weighted graphs
+appropriately. Do the results differ from those of the unweighted
+network? Examine the top five countries. Can you think of another way to
+calculate centrality in this network that accounts for the value of
+exports from each country? Briefly discuss.
+
+We first find total value of trade for each country and each year,
+replacing NAs with zero. 
+
+```{r weighted network, 1900, 1955, 2009, message = FALSE}
+
+# Calculate total exports and imports for each country per year
+total_trade <- trade %>%
+  # Exports contribution: country1 exports to others
+  group_by(country = country1, year) %>%
+  mutate(exports = replace_na(exports, 0)) %>%
+  summarise(total_exports = sum(exports)) %>%
+  ungroup() %>%
+  # Imports contribution: country2 imports from others
+  full_join(
+    trade %>%
+      group_by(country = country2, year) %>%
+      mutate(exports = replace_na(exports, 0)) %>%
+      summarise(total_imports = sum(exports)),
+    by = c("country", "year")
+  ) %>%
+  mutate(total_trade = total_exports + total_imports) %>% # Calculate total trade (exports + imports)
+  select(country, year, total_trade) # Select relevant columns
+
+# Join total trade to original dataframe 
+
+trade_joined <- left_join(
+  x = trade,
+  y = total_trade,
+  by = c("country1" = "country", "year")
+)
+
+trade_joined <- trade_joined %>% replace_na(list(exports = 0)) # replace NA values with 0
+```
+
+We then create an adjacency matrix for the
+years 1900, 1955, and 2009.
+
+```{r weighted adjacency network}
+
+# Function to create adjacency matrix for a specific year
+
+create_weighted_adjacency_matrix <- function(df) {
+  # Get unique countries for each year in dataframe
+  countries <- unique(c(df$country1, df$country2))
+  # Create empty matrix
+  adj_matrix <- matrix(0, 
+                      nrow = length(countries), 
+                      ncol = length(countries),
+                      dimnames = list(countries, countries))
+  # Fill matrix with trade values
+  for (i in 1:nrow(df)){
+    exporter <- df$country1[i]
+    importer <- df$country2[i]
+    
+    # Prevent division by zero and handle potential NAs
+    if (!is.na(df$exports[i]) && !is.na(df$total_trade[i]) && df$total_trade[i] != 0) {
+      value <- df$exports[i] / df$total_trade[i]
+      adj_matrix[exporter, importer] <- ifelse(is.finite(value), value, 0)
+    }
+  }
+  return(adj_matrix)
+}
+
+# Create a list of adjacency matrices for each year (1900, 1955, 2009) split the data by year and apply function
+
+adj_matrices_weighted <- trade_joined %>%
+  filter(year %in% years) %>%
+  group_split(year) %>%
+  lapply(create_weighted_adjacency_matrix)
+
+# Name the list elements with corresponding years
+names(adj_matrices_weighted) <- c(1900, 1955, 2009)
+```
+
+Next, we look at the compute the graph strength, closeness, and
+betweenness for these weighted networks modifying the `weights` argument
+to the `apply_igraph_functions` function we created for Question 2. We
+then get the top 5 countries for each measure and each year:
+
+```{r weighted adjacency graphs}
+
+# Altered list of functions
+functions_weighted <- list(
+  strength = function(g) strength(g, mode = "all"),
+  betweenness = function(g) betweenness(g, directed = TRUE),
+  percentage_closest = function(g, n) betweenness(g, directed = TRUE) / choose(n - 1, 2),
+  closeness = function(g) closeness(g, mode = "out")
+)
+
+# Apply the function to each adjacency matrix in the list
+result_weighted <- map(adj_matrices_weighted, apply_igraph_functions, functions_weighted, weights = TRUE)
+
+# Apply the function to each year's dataframe
+top_5_weighted_by_year <- lapply(result_weighted, get_top_n, n = 5)
+names(top_5_weighted_by_year) <- years
+top_5_weighted_by_year_combined <- bind_rows(top_5_weighted_by_year, .id = "year")
+
+top_5_weighted_by_year
+
+```
+
+```{r}
+# Create igraph objects
+adj_matrices_weighted_graphs <- lapply(adj_matrices_weighted, graph_from_adjacency_matrix, mode = "directed", weighted = TRUE, diag = FALSE)
+
+plots_weighted <- lapply(seq_along(adj_matrices_weighted_graphs), function(i) {
+  create_plot(adj_matrices_weighted_graphs[[i]], edge_alpha = 0.2, year = names(adj_matrices_weighted_graphs)[i])
+})
+print(plots_weighted)
+
+```
+
+
+## Question 4
+
+Apply the PageRank algorithm to the weighted trade network separately
+for each year. For each year, identify the 5 most influential countries
+according to this algorithm. In addition, examine how the ranking of
+PageRank values has changed over time for each of the following five
+countries -- US, United Kingdom, Russia, Japan, and China. Briefly
+comment on the patterns you observe.
+
+We now apply the PageRank algorithm to the weighted trade network from `trade_joined` and identify the 5 most influential countries.
+
+
+```{r}
+
+pagerank_trade <- map(adj_matrices_weighted_graphs, ~page_rank(.x))
+pagerank_trade <- lapply(pagerank_trade, function(x) x[[1]])
+get_top_n <- function(v, n = 5) {
+  sort(v, decreasing = TRUE)[1:min(n, length(v))]
+}
+top_pagerank <- lapply(pagerank_trade, get_top_n, n = 5)
+top_pagerank
+```
+We see that major economies for each year appear in the top 5 countries. We see some persistence (UK, US) as well as countries dropping out of the top 5 (Belgium) China is especially significant as it does not appear in years before 2009.
+
+We now get PageRank values for all years in the `trade_joined` dataset and plot the values of the the US, UK, Russia, Japan, and China over time.
+
+```{r}
+countries <- c("United States of America", "United Kingdom", "Russia", "Japan", "China")
+
+# Create the weighted adjacency matrices for all years
+
+adj_matrices_weighted_all <- trade_joined %>%
+  group_split(year) %>%
+  lapply(create_weighted_adjacency_matrix)
+
+# Create igrpah objects and apply pagerank algorithm
+
+adj_matrices_weighted_all_graphs <- lapply(adj_matrices_weighted_all, graph_from_adjacency_matrix, mode = "directed", weighted = TRUE, diag = FALSE)
+pagerank_trade_all <- map(adj_matrices_weighted_all_graphs, ~page_rank(.x))
+pagerank_trade_all <- lapply(pagerank_trade_all, function(x) x[[1]])
+names(pagerank_trade_all) <- unique(trade$year)
+
+# Create dataframe
+pagerank_trade_all_df <- bind_rows(pagerank_trade_all, .id = "year")
+pagerank_trade_all_df <- pagerank_trade_all_df %>%
+  pivot_longer(cols = !year, names_to = "country", values_to = "pagerank")
+
+# Create line plot for countries]
+pagerank_trade_all_df %>%
+  filter(country %in% countries) %>%
+  ggplot(aes(x = year, y = pagerank, color = country)) + 
+    geom_line(aes(group = country)) + 
+    ggtitle("PageRank Values by Year")
+```
+
